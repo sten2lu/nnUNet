@@ -37,8 +37,40 @@ def get_trainer_from_args(
     trainer_name: str = "nnUNetTrainer",
     plans_identifier: str = "nnUNetPlans",
     device: torch.device = torch.device("cuda"),
-    verbose: bool = False,
-):
+) -> nnUNetTrainer:
+    # load nnunet class and do sanity checks
+    nnunet_trainer = recursive_find_trainer_class_by_name(trainer_name)
+
+    # handle dataset input. If it's an ID we need to convert to int from string
+    # Convert dataset ID string if necessary
+    if not dataset_name_or_id.startswith("Dataset"):
+        try:
+            dataset_name_or_id = int(dataset_name_or_id)
+        except ValueError:
+            raise ValueError(
+                f"dataset_name_or_id must either be an integer or a valid dataset name with the pattern "
+                f"DatasetXXX_YYY where XXX are the three(!) task ID digits. Your "
+                f"input: {dataset_name_or_id}"
+            )
+
+    # initialize nnunet trainer
+    preprocessed_dataset_folder_base = join(
+        nnUNet_preprocessed, maybe_convert_to_dataset_name(dataset_name_or_id)
+    )
+    plans_file = join(preprocessed_dataset_folder_base, plans_identifier + ".json")
+    plans = load_json(plans_file)
+    dataset_json = load_json(join(preprocessed_dataset_folder_base, "dataset.json"))
+    nnunet_trainer = nnunet_trainer(
+        plans=plans,
+        configuration=configuration,
+        fold=fold,
+        dataset_json=dataset_json,
+        device=device,
+    )
+    return nnunet_trainer
+
+
+def recursive_find_trainer_class_by_name(trainer_name: str) -> type[nnUNetTrainer]:
     # load nnunet class and do sanity checks
     nnunet_trainer = recursive_find_python_class(
         join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
@@ -74,33 +106,6 @@ def get_trainer_from_args(
             )
     assert issubclass(nnunet_trainer, nnUNetTrainer), (
         "The requested nnunet trainer class must inherit from " "nnUNetTrainer"
-    )
-
-    # handle dataset input. If it's an ID we need to convert to int from string
-    # Convert dataset ID string if necessary
-    if not dataset_name_or_id.startswith("Dataset"):
-        try:
-            dataset_name_or_id = int(dataset_name_or_id)
-        except ValueError:
-            raise ValueError(
-                f"dataset_name_or_id must either be an integer or a valid dataset name with the pattern "
-                f"DatasetXXX_YYY where XXX are the three(!) task ID digits. Your "
-                f"input: {dataset_name_or_id}"
-            )
-
-    # initialize nnunet trainer
-    preprocessed_dataset_folder_base = join(
-        nnUNet_preprocessed, maybe_convert_to_dataset_name(dataset_name_or_id)
-    )
-    plans_file = join(preprocessed_dataset_folder_base, plans_identifier + ".json")
-    plans = load_json(plans_file)
-    dataset_json = load_json(join(preprocessed_dataset_folder_base, "dataset.json"))
-    nnunet_trainer = nnunet_trainer(
-        plans=plans,
-        configuration=configuration,
-        fold=fold,
-        dataset_json=dataset_json,
-        device=device,
     )
     return nnunet_trainer
 
