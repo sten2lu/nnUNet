@@ -41,11 +41,11 @@ from nnunetv2.inference.sliding_window_prediction import (
     compute_gaussian,
     compute_steps_for_sliding_window,
 )
-from nnunetv2.run.run_training import recursive_find_trainer_class_by_name
 from nnunetv2.utilities.file_path_utilities import (
     check_workers_alive_and_busy,
     get_output_folder,
 )
+from nnunetv2.utilities.find_objects import recursive_find_trainer_class_by_name
 from nnunetv2.utilities.helpers import dummy_context, empty_cache
 from nnunetv2.utilities.json_export import recursive_fix_for_json_export
 from nnunetv2.utilities.label_handling.label_handling import (
