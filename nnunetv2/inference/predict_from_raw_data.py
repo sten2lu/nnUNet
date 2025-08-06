@@ -607,6 +607,7 @@ class nnUNetPredictor(object):
         segmentation_previous_stage: np.ndarray = None,
         output_file_truncated: str = None,
         save_or_return_probabilities: bool = False,
+        temparature: Union[tuple[float, ...], List[float], float, None] = None,
     ):
         """
         WARNING: SLOW. ONLY USE THIS IF YOU CANNOT GIVE NNUNET MULTIPLE IMAGES AT ONCE FOR SOME REASON.
@@ -638,7 +639,9 @@ class nnUNetPredictor(object):
 
         if self.verbose:
             print("predicting")
-        predicted_logits = self.predict_logits_from_preprocessed_data(dct["data"]).cpu()
+        predicted_logits = self.predict_logits_from_preprocessed_data(
+            dct["data"], temparature
+        ).cpu()
 
         if self.verbose:
             print("resampling to original shape")
@@ -667,10 +670,17 @@ class nnUNetPredictor(object):
                 return ret
 
     @torch.inference_mode()
-    def predict_logits_from_preprocessed_data(self, data: torch.Tensor) -> torch.Tensor:
+    def predict_logits_from_preprocessed_data(
+        self,
+        data: torch.Tensor,
+        temparature: Union[tuple[float, ...], List[float], float, None] = None,
+    ) -> torch.Tensor:
         """
         IMPORTANT! IF YOU ARE RUNNING THE CASCADE, THE SEGMENTATION FROM THE PREVIOUS STAGE MUST ALREADY BE STACKED ON
         TOP OF THE IMAGE AS ONE-HOT REPRESENTATION! SEE PreprocessAdapter ON HOW THIS SHOULD BE DONE!
+
+        If temperature is not None, temparature scaling is performed on the output of each fold and then the logits
+        are aggregated in logit space.
 
         RETURNED LOGITS HAVE THE SHAPE OF THE INPUT. THEY MUST BE CONVERTED BACK TO THE ORIGINAL IMAGE SIZE.
         SEE convert_predicted_logits_to_segmentation_with_correct_shape
@@ -680,8 +690,11 @@ class nnUNetPredictor(object):
             default_num_processes if default_num_processes < n_threads else n_threads
         )
         prediction = None
+        if temparature is not None:
+            if isinstance(temparature, float):
+                temparature = [temparature] * len(self.list_of_parameters)
 
-        for params in self.list_of_parameters:
+        for i, params in enumerate(self.list_of_parameters):
 
             # messing with state dict names...
             if not isinstance(self.network, OptimizedModule):
@@ -693,12 +706,29 @@ class nnUNetPredictor(object):
             # second iteration to crash due to OOM. Grabbing that with try except cause way more bloated code than
             # this actually saves computation time
             if prediction is None:
-                prediction = self.predict_sliding_window_return_logits(data).to("cpu")
+                if temparature is None:
+                    prediction = self.predict_sliding_window_return_logits(data).to(
+                        "cpu"
+                    )
+                else:
+                    prediction = (
+                        self.predict_sliding_window_return_logits(data)
+                        / (temparature[i] * len(self.list_of_parameters))
+                    ).to("cpu")
             else:
-                prediction += self.predict_sliding_window_return_logits(data).to("cpu")
+                if temparature is None:
+                    prediction += self.predict_sliding_window_return_logits(data).to(
+                        "cpu"
+                    )
+                else:
+                    prediction += (
+                        self.predict_sliding_window_return_logits(data)
+                        / (temparature[i] * len(self.list_of_parameters))
+                    ).to("cpu")
 
-        if len(self.list_of_parameters) > 1:
-            prediction /= len(self.list_of_parameters)
+        if temparature is None:
+            if len(self.list_of_parameters) > 1:
+                prediction /= len(self.list_of_parameters)
 
         if self.verbose:
             print("Prediction done")
